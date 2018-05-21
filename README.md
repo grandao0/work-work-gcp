@@ -197,3 +197,61 @@ Save the `test.dat` file: , then
 Now upload some data to the bucket you created (make sure to replace "unique-name" with your storage bucket):
 
 `gsutil cp test.dat gs://unique-name`
+
+
+#### Provision Services with Cloud Launcher
+
+Cloud Launcher provides a way to launch common software packages and stacks on Google Compute Engine with just a few clicks. Many common web frameworks, databases, CMSs, and CRMs are supported. This is one of the fastest ways to get up and running on Google Cloud Platform.
+
+
+#### Getting Started with Cloud Launcher
+
+In this section, you'll learn how to create an Nginx Stack on Google Compute Engine with Cloud Launcher.
+
+
+#### Navigate to Cloud Launcher
+
+In the Google Cloud Console, navigate to <b>Cloud Launcher</b> and click on it.
+
+
+#### Choosing Nginx
+
+In the search box that says "Search for solutions" type "Nginx". Then click on the Nginx Certified by Bitnami tile to select the platform.
+
+Now click <b>Launch on Compute Engine.</b>
+
+#### Launching the Nginx Stack
+
+VM Instance Configuration
+
+Once the project is created you'll be taken to the New Nginx deployment page in the Cloud Console to configure your Nginx instance.
+
+On this screen you will:
+
+- Choose a name for your instance.
+- Pick a zone as us-central1-a.
+
+Leave as default:
+
+- Machine type: micro (1-shared vCPU) 0.6 GB memory.
+- Boot Disk: 10 GB SSD.
+- "Allow HTTP Traffic" and "Allow HTTPS Traffic" are checked.
+
+Click <b>Deploy</b> to launch your Nginx Stack.
+
+Creating the VM instance and deploying the Nginx Stack to it may take a few minutes. Cloud Deployment Manager will provide progress details.
+
+
+#### Verifying the Deployment
+
+When the Cloud Console says that your Nginx stack has been deployed you can verify that everything worked correctly. Your screen should look something like this.
+
+Verifying via the Web
+
+Click on the blue <b>Visit the site</b> button to access the deployed Nginx Stack in a new tab.
+
+Verifying via SSH
+
+You can also click on the SSH link for the VM instance in the console to open an SSH prompt in a new browser window. You can use standard Unix commands like `ps` to see if Ngnix is running on your instance.
+
+`ps aux | grep nginx`
