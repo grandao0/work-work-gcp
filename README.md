@@ -220,6 +220,7 @@ In the search box that says "Search for solutions" type "Nginx". Then click on t
 
 Now click <b>Launch on Compute Engine.</b>
 
+
 #### Launching the Nginx Stack
 
 VM Instance Configuration
@@ -255,3 +256,132 @@ Verifying via SSH
 You can also click on the SSH link for the VM instance in the console to open an SSH prompt in a new browser window. You can use standard Unix commands like `ps` to see if Ngnix is running on your instance.
 
 `ps aux | grep nginx`
+
+
+#### Creating a Persistent Disk
+
+Google Compute Engine provides persistent disks for use as the primary storage for your virtual machine instances. Like physical hard drives, persistent disks exist independently of the rest of your machine – if a virtual machine instance is deleted, the attached persistent disk continues to retain its data and can be attached to another instance.
+
+There are 2 types of persistent disks:
+
+- Standard persistent disk
+- SSD Persistent disk
+
+Each type of persistent disks will have different capacity limits.
+
+#### Activate Google Cloud Shell
+
+`gcloud auth list`
+
+`gcloud config list project`
+
+If it is not, you can set it with this command:
+
+`gcloud config set project <PROJECT_ID>`
+
+
+#### Create a new instance
+
+In Cloud Shell command line, use the `gcloud` command to create a new virtual machine instance named `gcelab`:
+
+`gcloud compute instances create gcelab --zone us-central1-c`
+
+The newly created virtual machine instance will have a default 10 GB persistent disk as the boot disk.
+
+
+#### Create a new persistent disk
+
+Because we want to attach this disk to the virtual machine instance we created in the previous step, the zone must be the same.
+
+Still in the Cloud Shell command line, use the following command to create a new disk named `mydisk`:
+
+`gcloud compute disks create mydisk --size=200GB \
+--zone us-central1-c`
+
+
+#### Attaching a disk
+
+Attaching the persistent disk
+
+You can attach a disk to a running virtual machine. Let's attach the new disk (`mydisk`) to the virtual machine instance you just created (`gcelab`).
+
+Use the following command to attach the disk:
+
+`gcloud compute instances attach-disk gcelab --disk mydisk --zone us-central1-c`
+
+Finding the persistent disk in the virtual machine
+
+The persistent disk is now available as a block device in the virtual machine instance. Let's take a look.
+
+1. SSH into the virtual machine:
+
+`gcloud compute ssh gcelab --zone us-central1-c`
+
+2. At the prompt, enter `y` to continue.
+
+3. When prompted for an RSA key pair passphrase, press <b>enter</b> for no passphrase, and then press <b>enter</b> again to confirm no passphrase.
+
+4. Now find the disk device by listing the disk devices in `/dev/disk/by-id/`.
+
+`ls -l /dev/disk/by-id/`
+
+You found the file, the default name is:
+
+`scsi-0Google_PersistentDisk_persistent-disk-1.`
+
+If you want a different device name, when you attach the disk, you would specify the `device-name` parameter. For example, to specify a device name, when you attach the disk you would use the command:
+
+`gcloud compute instances attach-disk gcelab --disk mydisk --device-name <YOUR_DEVICE_NAME> --zone us-central1-c`
+
+Formatting and mounting the persistent disk
+Once you find the block device, you can partition the disk, format it, and then mount it using the following Linux utilities:
+
+- `mkfs:` creates a filesystem
+- `mount:` attaches to a filesystem
+
+1. Make a mount point:
+
+`sudo mkdir /mnt/mydisk`
+
+2. Next, format the disk with a single `ext4` filesystem using the `mkfs` tool. This command deletes all data from the specified disk:
+
+`sudo mkfs.ext4 -F -E lazy_itable_init=0,lazy_journal_init=0,discard /dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-1`
+
+3. Now use the `mount` tool to mount the disk to the instance with the `discard` option enabled:
+
+`sudo mount -o discard,defaults /dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-1 /mnt/mydisk`
+
+That's it!
+
+Automatically mount the disk on restart
+
+By default the disk will not be remounted if your virtual machine restarts. To make sure the disk is remounted on restart, you need to add an entry into `/etc/fstab.`
+
+1. Open `/etc/fstab` in nano to edit.
+
+`sudo nano /etc/fstab`
+
+2. Add the following below the line that starts with "UUID=..."
+
+`/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-1 /mnt/mydisk ext4 defaults 1 1`
+
+`/etc/fstab` content should look like this:
+
+`UUID=e084c728-36b5-4806-bb9f-1dfb6a34b396 / ext4 defaults 1 1
+/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-1 /mnt/mydisk ext4 defaults 1 1`
+
+3. Save and exit nano by pressing `Ctrl+o`, `Enter`, `Ctrl+x`, in that order.
+
+
+#### Local SSDs
+
+Google Compute Engine can also attach local SSDs. Local SSDs are physically attached to the server hosting the virtual machine instance to which they are mounted. This tight coupling offers superior performance, with very high input/output operations per second (IOPS) and very low latency compared to persistent disks.
+
+Local SSD performance offers:
+
+- Less than 1 ms of latency
+- Up to 680,000 read IOPs and 360,000 write IOPs
+
+These performance gains require certain trade-offs in availability, durability, and flexibility. Because of these trade-offs, local SSD storage is not automatically replicated and all data can be lost in the event of a host error or a user configuration error that makes the disk unreachable. Users must take extra precautions to backup their data.
+
+This lab does not cover local SSDs. To maximize the local SSD performance, you'll need to use a special Linux image that supports NVMe.
