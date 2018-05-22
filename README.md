@@ -385,3 +385,372 @@ Local SSD performance offers:
 These performance gains require certain trade-offs in availability, durability, and flexibility. Because of these trade-offs, local SSD storage is not automatically replicated and all data can be lost in the event of a host error or a user configuration error that makes the disk unreachable. Users must take extra precautions to backup their data.
 
 This lab does not cover local SSDs. To maximize the local SSD performance, you'll need to use a special Linux image that supports NVMe.
+
+
+#### Hello Node Kubernetes
+
+Kubernetes is an open source project (available on kubernetes.io) which can run on many different environments, from laptops to high-availability multi-node clusters; from public clouds to on-premise deployments; from virtual machines to bare metal.
+
+
+#### Activate Google Cloud Shell
+
+`gcloud auth list`
+
+`gcloud config list project`
+
+If it is not, you can set it with this command:
+
+`gcloud config set project <PROJECT_ID>`
+
+
+#### Create your Node.js application
+
+Using Cloud Shell, we'll write the application that we want to deploy to Kubernetes Engine. Here is a simple Node.js server:
+
+`vi server.js`
+
+Start the editor:
+
+`i`
+
+Add this content:
+
+`var http = require('http');
+var handleRequest = function(request, response) {
+  response.writeHead(200);
+  response.end("Hello World!");
+}
+var www = http.createServer(handleRequest);
+www.listen(8080);`
+
+We use `vi` here but `nano` and `emacs` are also available in Cloud Shell. 
+
+Save the `server.js` file: \<Esc> then:
+
+`:wq`
+
+Since Cloud Shell has the `node` executable installed, run this command (the command produces no output):
+
+node server.js
+
+Use the built-in Web preview feature of Cloud Shell to open a new browser tab and proxy a request to the instance you just started on port 8080.
+
+A new tab will open to display your results.
+
+Before we continue, stop the running node server by typing <b>Ctrl-c</b> in Cloud Shell.
+
+Now, more importantly, let's package this application in a Docker container.
+
+
+#### Create a Docker container image
+
+Next, create a `Dockerfile` that describes the image you want to build. Docker container images can extend from other existing images, so for this image, we'll extend from an existing Node image.
+
+`vi Dockerfile`
+
+Start the editor.
+
+`i`
+
+Add this content :
+
+`FROM node:6.9.2
+EXPOSE 8080
+COPY server.js .
+CMD node server.js`
+
+This "recipe" for the Docker image will:
+
+- Start from the node image found on the Docker hub.
+- Expose port 8080.
+- Copy our server.js file to the image.
+- Start the node server as we previously did manually.
+
+Save this `Dockerfile:` \<Esc>, then:
+
+`:wq`
+
+Build the image with the following, replace `PROJECT_ID` with your lab project ID, found in the Console:
+
+`docker build -t gcr.io/PROJECT_ID/hello-node:v1 .`
+
+It'll take some time to download and extract everything, but you can see the progress bars as the image builds. Once complete, test the image locally with the following command which will run a Docker container as a daemon on port 8080 from our newly-created container image:
+
+`docker run -d -p 8080:8080 gcr.io/PROJECT_ID/hello-node:v1`
+
+Your output should look something like this:
+
+`325301e6b2bffd1d0049c621866831316d653c0b25a496d04ce0ec6854cb7998`
+
+Take advantage of the Web preview feature of Cloud Shell to see your results.
+
+Or use `curl` from your Cloud Shell prompt:
+
+`curl http://localhost:8080`
+
+This is the output you should see :
+
+`Hello World!`
+
+Now let's stop the running container.
+
+Find your Docker container ID by running:
+
+`docker ps`
+
+Stop the container by using the CONTAINER ID provided from the previous step:
+
+`docker stop [CONTAINER ID]`
+
+Your console output you should look like this (your container ID):
+
+`2c66d0efcbd4`
+
+Now that the image is working as intended, push it to the Google Container Registry, a private repository for your Docker images, accessible from your Google Cloud projects.
+
+Run:
+
+Make sure to replace `PROJECT_ID` with your lab project ID, found in the Console
+
+`gcloud docker -- push gcr.io/PROJECT_ID/hello-node:v1`
+
+The initial push may take a few minutes to complete. You'll see the progress bars as it builds.
+
+The container image will be listed in your <b>Console: Tools > Container Registry.</b> Now you have a project-wide Docker image available, which Kubernetes can access and orchestrate.
+
+Note: We used a generic domain for the registry (gcr.io). You can be more specific about which zone and bucket to use. Details are documented here: https://cloud.google.com/container-registry/docs/#pushing_to_the_registry
+
+
+#### Create your cluster
+
+Now you're ready to create your Container Engine cluster. A cluster consists of a Kubernetes master API server hosted by Google and a set of worker nodes. The worker nodes are Compute Engine virtual machines.
+
+Make sure you have set your project using `gcloud` (replace `PROJECT_ID` with your lab Project ID, found in the console):
+
+`gcloud config set project PROJECT_ID`
+
+Create a cluster with two n1-standard-1 nodes (this will take a few minutes to complete):
+
+`gcloud container clusters create hello-world \
+                --num-nodes 2 \
+                --machine-type n1-standard-1 \
+                --zone us-central1-a`
+
+You can also create this cluster through the Console, image shown above: <b>Kubernetes Engine > Kubernetes clusters > Create cluster.</b>
+
+It is recommended to create the cluster in the same zone as the storage bucket used by the container registry (see previous step).
+
+Now you have a fully-functioning Kubernetes cluster powered by Kubernetes Engine.
+
+It's time to deploy your own containerized application to the Kubernetes cluster! From now on we'll use the `kubectl` command line (already set up in your Cloud Shell environment).
+
+
+#### Create your pod
+
+A Kubernetes <b>pod</b> is a group of containers tied together for administration and networking purposes. It can contain single or multiple containers. Here we'll use one container built with your Node.js image stored in our private container registry. It will serve content on port 8080.
+
+Let's create a pod with the `kubectl run` command (replace `PROJECT_ID` with your lab Project ID, found in the console) :
+
+`kubectl run hello-node \
+    --image=gcr.io/PROJECT_ID/hello-node:v1 \
+    --port=8080`
+
+This is the output you should see :
+
+`deployment "hello-node" created`
+
+As you can see, we've created a <b>deployment</b> object. Deployments are the recommended way to create and scale pods. Here, a new deployment manages a single pod replica running the `hello-node:v1` image.
+
+To view the deployment we just created, run:
+
+`kubectl get deployments`
+
+This is the output you should see:
+
+`NAME         DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+hello-node   1         1         1            1           2m`
+
+To view the pod created by the deployment, run:
+
+`kubectl get pods`
+
+This is the output you should see:
+
+`NAME                         READY     STATUS    RESTARTS   AGE
+hello-node-714049816-ztzrb   1/1       Running   0          6m`
+
+Now is a good time to go through some interesting `kubectl` commands. None of these will change the state of the cluster:
+
+`kubectl cluster-info`
+
+`kubectl config view`
+
+And for troubleshooting :
+
+`kubectl get events`
+
+`kubectl logs <pod-name>`
+
+We now need to make your pod accessible to the outside world.
+
+
+#### Allow external traffic
+
+By default, the pod is only accessible by its internal IP within the cluster. In order to make the `hello-node` container accessible from outside the Kubernetes virtual network, you have to expose the pod as a Kubernetes service.
+
+From Cloud Shell we can expose the pod to the public internet with the `kubectl expose` command combined with the `--type="LoadBalancer"` flag. This flag is required for the creation of an externally accessible IP:
+
+`kubectl expose deployment hello-node --type="LoadBalancer"`
+
+This is the output you should see :
+
+`service "hello-node" exposed`
+
+The flag used in this command specifies that we'll be using the load-balancer provided by the underlying infrastructure (in this case the Compute Engine load balancer). Note that we expose the deployment, and not the pod directly. This will cause the resulting service to load balance traffic across all pods managed by the deployment (in this case only 1 pod, but we will add more replicas later).
+
+The Kubernetes master creates the load balancer and related Compute Engine forwarding rules, target pools, and firewall rules to make the service fully accessible from outside of Google Cloud Platform.
+
+To find the publicly-accessible IP address of the service, request `kubectl` to list all the cluster services:
+
+`kubectl get services`
+
+This is the output you should see :
+
+`NAME         CLUSTER-IP     EXTERNAL-IP      PORT(S)    AGE
+hello-node   10.3.250.149   104.154.90.147   8080/TCP   1m
+kubernetes   10.3.240.1     <none>           443/TCP    5m`
+
+There are 2 IP addresses listed for your service, both serving port `8080`. One is the internal IP that is only visible inside your cloud virtual network; the other is the external load-balanced IP.
+
+The `EXTERNAL-IP` may take several minutes to become available and visible. If the `EXTERNAL-IP` is missing, wait a few minutes and try again.
+
+You should now be able to reach the service by pointing your browser to this address: `http://<EXTERNAL_IP>:8080`
+
+At this point we've gained several features from moving to containers and Kubernetes - we do not need to specify on which host to run our workload and we also benefit from service monitoring and restart. Let's see what else we can gain from our new Kubernetes infrastructure.
+
+
+#### Scale up your service
+
+One of the powerful features offered by Kubernetes is how easy it is to scale your application. Suppose you suddenly need more capacity for your application. You can tell the replication controller to manage a new number of replicas for your pod:
+
+`kubectl scale deployment hello-node --replicas=4`
+
+This is the output you should see:
+
+`deployment "hello-node" scaled`
+
+You can request a description of the updated deployment :
+
+`kubectl get deployment`
+
+This is the output you should see:
+
+`NAME         DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+hello-node   4         4         4            3           16m`
+
+You can also list the all pods :
+
+`kubectl get pods`
+
+This is the output you should see :
+
+`NAME                         READY     STATUS    RESTARTS   AGE
+hello-node-714049816-g4azy   1/1       Running   0          1m
+hello-node-714049816-rk0u6   1/1       Running   0          1m
+hello-node-714049816-sh812   1/1       Running   0          1m
+hello-node-714049816-ztzrb   1/1       Running   0          16m`
+
+We are using a <b>declarative approach</b> here. Rather than starting or stopping new instances, you declare how many instances should be running at all times. Kubernetes reconciliation loops makes sure that reality matches what you requested and takes action if needed.
+
+
+#### Roll out an upgrade to your service
+
+At some point the application that you've deployed to production will require bug fixes or additional features. Kubernetes helps you deploy a new version to production without impacting your users.
+
+First, let's modify the application. Edit the `server.js` by starting the editor:
+
+`vi server.js`
+
+`i`
+
+Then update the response message:
+
+`response.end("Hello Kubernetes World!");`
+
+Save the server.js file: \<Esc> then:
+
+`:wq`
+
+Now we can build and publish a new container image to the registry with an incremented tag (<b>`v2`</b> in this case):
+
+Make sure to replace `PROJECT_ID` with your lab project ID, found in the Console
+
+`docker build -t gcr.io/PROJECT_ID/hello-node:v2 .`
+
+`gcloud docker -- push gcr.io/PROJECT_ID/hello-node:v2`
+
+Building and pushing this updated image should be quicker as we take full advantage of caching.
+
+Kubernetes will smoothly update our replication controller to the new version of the application. In order to change the image label for our running container, we will need to edit the existing `hello-node deployment` and change the image from `gcr.io/PROJECT_ID/hello-node:v1` to `gcr.io/PROJECT_ID/hello-node:v2.`
+
+To do this, use the `kubectl edit` command. It opens a text editor displaying the full deployment yaml configuration. It isn't necessary to understand the full yaml config right now, just understand that by updating the `spec.template.spec.containers.image` field in the config we are telling the deployment to update the pods with the new image.
+
+`kubectl edit deployment hello-node`
+
+After making the change, save and close this file: \<Esc>, then:
+
+`:wq`
+
+This is the output you should see:
+
+`deployment "hello-node" edited`
+
+Run the following to update the deployment with the new image. New pods will be created with the new image and the old pods will be deleted.
+
+`kubectl get deployments`
+
+This is the output you should see:
+
+`NAME         DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+hello-node   4         4         4            4           1h`
+
+While this is happening, the users of your services shouldn't see any interruption. After a little while they'll start accessing the new version of your application.
+
+Hopefully with these deployment, scaling, and update features, once you've set up your Kubernetes Engine cluster, you'll agree that Kubernetes will help you focus on the application rather than the infrastructure.
+
+
+#### Kubernetes graphical dashboard (optional)
+
+A graphical web user interface (dashboard) has been introduced in recent versions of Kubernetes. The dashboard allows you to get started quickly and enables some of the functionality found in the CLI as a more approachable and discoverable way of interacting with the system.
+
+To configure access to the Kubernetes cluster dashboard, from the Cloud Shell window, run these two commands (replace `PROJECT_ID` with your lab Project ID, found in the console):
+
+`gcloud container clusters get-credentials hello-world \
+    --zone us-central1-a --project <PROJECT_ID>`
+
+To login into Kubernetes dashboard, you must authenticate using a token.
+
+If you have not set up specific tokens for this purpose, you can use a token allocated to a service account, such as the namespace-controller.
+
+To get the token value, try run the following command:
+
+`kubectl -n kube-system describe $(kubectl -n kube-system \
+   get secret -n kube-system -o name | grep namespace) | grep token:`
+   
+Copy the token as we require it for get into the Kubernetes dashboard.
+
+`kubectl proxy --port 8081`
+
+Then use the Cloud Shell Web preview feature to head over to port <b>8081:</b>
+
+This should send you to the API endpoint. To get to the dashboard, remove ?authuser=0 and append the URL with "`/ui`".
+
+Your final URL looks similar to following:
+
+`https://8081-dot-3103388-dot-devshell.appspot.com/ui`
+
+Select the <b>Token</b> radio button and paste the token copied from previous step. Click <b>Sign In.</b>
+
+Enjoy the Kubernetes graphical dashboard and use it for deploying containerized applications, as well as for monitoring and managing your clusters!
+
+You can access the dashboard from a development or local machine using similar instructions from the Web console. Click the <b>Connect</b> button for the cluster you want to monitor.
