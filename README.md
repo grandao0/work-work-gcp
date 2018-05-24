@@ -754,3 +754,140 @@ Select the <b>Token</b> radio button and paste the token copied from previous st
 Enjoy the Kubernetes graphical dashboard and use it for deploying containerized applications, as well as for monitoring and managing your clusters!
 
 You can access the dashboard from a development or local machine using similar instructions from the Web console. Click the <b>Connect</b> button for the cluster you want to monitor.
+
+
+#### Set Up Network and HTTP Load Balancers
+
+
+#### Activate Google Cloud Shell
+
+`gcloud auth list`
+
+`gcloud config list project`
+
+If it is not, you can set it with this command:
+
+`gcloud config set project <PROJECT_ID>`
+
+Finally, using Cloud Shell, set the default zone and project configuration:
+
+`gcloud config set compute/zone us-central1-a`
+`gcloud config set compute/region us-central1`
+
+
+#### Create multiple web server instances
+
+To simulate serving from a cluster of machines, we'll create a simple cluster of Nginx web servers that will serve static content using Instance Templates and Managed Instance Groups. Instance Templates lets you to define what every virtual machine in the cluster will look like (disk, CPUs, memory, etc), and a Managed Instance Group instantiates a number of virtual machine instances for you using the Instance Template.
+
+First, create a startup script that will be used by every virtual machine instance to setup Nginx server upon startup:
+
+`cat << EOF > startup.sh
+#! /bin/bash
+apt-get update
+apt-get install -y nginx
+service nginx start
+sed -i -- 's/nginx/Google Cloud Platform - '"\$HOSTNAME"'/' /var/www/html/index.nginx-debian.html
+EOF`
+
+Second, create an instance template that will use the startup script:
+
+`gcloud compute instance-templates create nginx-template \
+         --metadata-from-file startup-script=startup.sh`
+         
+Third, let's create a target pool. A target pool allows us to have a single access point to all the instances in a group and is necessary for load balancing in the future steps.
+
+`gcloud compute target-pools create nginx-pool`
+
+Finally, create a managed instance group using the instance template:
+
+`gcloud compute instance-groups managed create nginx-group \
+         --base-instance-name nginx \
+         --size 2 \
+         --template nginx-template \
+         --target-pool nginx-pool`
+         
+This will create 2 virtual machine instances with names that are prefixed with `nginx-.` This may take a couple of minutes.
+
+List the compute engine instances and you should see all of the instances created!
+
+`gcloud compute instances list`
+
+Now configure a firewall so that you can connect to the machines on port 80 via the `EXTERNAL_IP` addresses:
+
+`gcloud compute firewall-rules create www-firewall --allow tcp:80`
+
+You should be able to connect to each of the instances via their external IP addresses via `http://EXTERNAL_IP/` shown as the result of running the previous command.
+
+
+#### Create a Network Load Balancer
+
+Network load balancing allows you to balance the load of your systems based on incoming IP protocol data, such as address, port, and protocol type. You also get some options that are not available with HTTP(S) load balancing. For example, you can load balance additional TCP/UDP-based protocols such as SMTP traffic. And if your application is interested in TCP-connection-related characteristics, network load balancing allows your app to inspect the packets, where HTTP(S) load balancing does not.
+
+Let's create a L3 network load balancer targeting our instance group:
+
+`gcloud compute forwarding-rules create nginx-lb \
+         --region us-central1 \
+         --ports=80 \
+         --target-pool nginx-pool`
+         
+List all Google Compute Engine forwarding rule in your project.
+
+`gcloud compute forwarding-rules list`
+
+You can then visit the load balancer from the browser `http://IP_ADDRESS/` where `IP_ADDRESS` is the address shown as the result of running the previous command.
+
+
+#### Create a HTTP(s) Load Balancer
+
+HTTP(S) load balancing provides global load balancing for HTTP(S) requests destined for your instances. You can configure URL rules that route some URLs to one set of instances and route other URLs to other instances. Requests are always routed to the instance group that is closest to the user, provided that group has enough capacity and is appropriate for the request. If the closest group does not have enough capacity, the request is sent to the closest group that does have capacity.
+
+First, create a health check. Health checks verify that the instance is responding to HTTP or HTTPS traffic:
+
+`gcloud compute http-health-checks create http-basic-check`
+
+Define an HTTP service and map a port name to the relevant port for the instance group. Now the load balancing service can forward traffic to the named port:
+
+`gcloud compute instance-groups managed \
+       set-named-ports nginx-group \
+       --named-ports http:80`
+       
+Create a backend service:
+
+`gcloud compute backend-services create nginx-backend \
+      --protocol HTTP --http-health-checks http-basic-check --global`
+      
+Add the instance group into the backend service:
+
+Make sure to replace zone (If you are using different zone)
+
+`gcloud compute backend-services add-backend nginx-backend \
+    --instance-group nginx-group \
+    --instance-group-zone us-central1-a \
+    --global`
+    
+Create a default URL map that directs all incoming requests to all your instances:
+
+`gcloud compute url-maps create web-map \
+    --default-service nginx-backend`
+    
+To direct traffic to different instances based on the URL being requested, see content-based routing.
+
+Create a target HTTP proxy to route requests to your URL map:
+
+`gcloud compute target-http-proxies create http-lb-proxy \
+    --url-map web-map`
+    
+Create a global forwarding rule to handle and route incoming requests. A forwarding rule sends traffic to a specific target HTTP or HTTPS proxy depending on the IP address, IP protocol, and port specified. The global forwarding rule does not support multiple ports.
+
+`gcloud compute forwarding-rules create http-content-rule \
+        --global \
+        --target-http-proxy http-lb-proxy \
+        --ports 80`
+        
+After creating the global forwarding rule, it can take several minutes for your configuration to propagate.
+
+`gcloud compute forwarding-rules list`
+
+Take note of the http-content-rule IP_ADDRESS for the forwarding rule.
+
+From the browser, you should be able to connect to `http://IP_ADDRESS/.`
